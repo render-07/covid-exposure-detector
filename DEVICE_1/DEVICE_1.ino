@@ -11,13 +11,20 @@
 #include <Arduino.h>
 #define SERVICE_UUID        "37565ec6-46c8-11ec-81d3-0242ac130003"
 #define CHARACTERISTIC_UUID "447cd81e-46c8-11ec-81d3-0242ac130003"
+
+// For a connection via I2C using the Arduino Wire include:
+#include <Wire.h> // Only needed for Arduino 1.6.5 and earlier
+#include "SH1106Wire.h"   // legacy: #include "SH1106.h"
+SH1106Wire display(0x3c, SDA, SCL);     // ADDRESS, SDA, SCL
+
+
 BLEScan* pBLEScan;
 
 StaticJsonDocument<200> doc;
-const char* ssid = "";
-const char* password = "";
-const String serverName = "";
-const String serverNameGetDevice = "";
+const char* ssid = "RADIUS219E2";
+const char* password = "ppj3DH5rKX";
+const String serverName = "http://192.168.1.15:5000/api/information";
+const String serverNameGetDevice = "http://192.168.1.15:5000/api/devices";
 const int LED_WIFI = 5; // wifi led indicator
 const int LED_POST_DATA = 2; // post data led indicator
 const int BUZZER_NEAR_PERSON = 19; // near person indicator
@@ -32,6 +39,24 @@ int8_t A = -69; // indicates the signal strength is received from a reference no
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastTime = 0;
 unsigned long timerDelay = 5; // Set timer to 5 seconds (5000)
+
+void refreshDisplay(String text){
+  display.clear();
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawStringMaxWidth(0, 0, 128, text);
+  // write the buffer to the display
+  display.display();
+}
+
+void refreshDisplayCount(String text){
+  display.clear();
+  display.setFont(ArialMT_Plain_16);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawStringMaxWidth(0, 0, 128, text);
+  // write the buffer to the display
+  display.display();
+}
 
 String getServiceUUID (String uuid) {
   String serviceUUID = uuid.substring(uuid.indexOf("serviceUUID: "), 93); // get only serviceUUID (92th is the placement of the last char of serviceUUID)
@@ -135,7 +160,6 @@ bool checkInDatabase (String uuid) {
   }
 }
 
-
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
       Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
@@ -147,12 +171,12 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
         Serial.printf("Rssi-distance in meters: %f", distance);
         Serial.printf(" m \n");
         // Serial.printf("Rssi: %d \n", (int)advertisedDevice.getRSSI());
-
+        refreshDisplayCount("Distance: " + String(distance) + "m");
         // check if UID is existing in the database
         bool isExisting = checkInDatabase(advertisedDevice.toString().c_str());
 
-        // Exposure count of 12 indicates 1 minute
-        if (isExisting && distance <= 1 && exposureCount == 12) {
+        // Exposure count of 12 indicates 1 minute (180 == 15 minute)
+        if (isExisting && distance <= 1 && exposureCount == 180) {
           digitalWrite(BUZZER_NEAR_PERSON, HIGH);
           digitalWrite (LED_WIFI, HIGH);
           delay(3000);
@@ -171,10 +195,17 @@ void setup() {
   pinMode(LED_POST_DATA, OUTPUT);
   pinMode(BUZZER_NEAR_PERSON, OUTPUT);
 
+  // Initialising the UI will init the display too.
+  display.init();
+  display.flipScreenVertically();
+  refreshDisplay("Welcome fuckers");
+
   Serial.print("Connecting to ");
   Serial.print(ssid);
   Serial.print(" with password ");
   Serial.println(password);
+
+  refreshDisplay("Connecting to " + String(ssid) + " with password " + String(password));
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -224,11 +255,12 @@ void loop() {
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
   Serial.println("Devices found: ");
   Serial.println(foundDevices.getCount());
+  refreshDisplayCount("Devices found: " + String(foundDevices.getCount()));
 
   if (foundDevices.getCount() == 0) {
     exposureCount = 0;
   }
-  
+
   for (int i = 0; i < foundDevices.getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices.getDevice(i);
     if (strcmp(device.getName().c_str(), "DEVICE 2") == 0) {
