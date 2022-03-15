@@ -17,22 +17,23 @@
 #include "SH1106Wire.h"   // legacy: #include "SH1106.h"
 SH1106Wire display(0x3c, SDA, SCL);     // ADDRESS, SDA, SCL
 
-
 BLEScan* pBLEScan;
 
 StaticJsonDocument<200> doc;
-const char* ssid = "RADIUS219E2";
-const char* password = "ppj3DH5rKX";
-const String serverName = "http://192.168.1.15:5000/api/information";
-const String serverNameGetDevice = "http://192.168.1.15:5000/api/devices";
+const char* ssid = "wifiName";
+const char* password = "wifiPassword";
+const String serverName = "localhost:port/api/information";
+const String serverNameGetDevice = "localhost:port/api/devices";
 const int LED_WIFI = 5; // wifi led indicator
 const int LED_POST_DATA = 2; // post data led indicator
 const int BUZZER_NEAR_PERSON = 19; // near person indicator
-
+const String DEVICE_NAME = "DEVICE 2";
 int exposureCount = 0;
 int scanTime = 3; //In seconds
+int devicesFound = 0;
 int8_t N = 2; // index
 int8_t A = -69; // indicates the signal strength is received from a reference node, normally at a distance of 1m.
+
 // BLE uses Measured Power is also known as the 1 Meter RSSI. So consider the value of Measured Power = -69
 
 // the following variables are unsigned longs because the time, measured in
@@ -40,7 +41,7 @@ int8_t A = -69; // indicates the signal strength is received from a reference no
 unsigned long lastTime = 0;
 unsigned long timerDelay = 5; // Set timer to 5 seconds (5000)
 
-void refreshDisplay(String text){
+void refreshDisplay(String text) {
   display.clear();
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -49,11 +50,20 @@ void refreshDisplay(String text){
   display.display();
 }
 
-void refreshDisplayCount(String text){
+void displayDeviceFound(String text) {
   display.clear();
   display.setFont(ArialMT_Plain_16);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.drawStringMaxWidth(0, 0, 128, text);
+  // write the buffer to the display
+  display.display();
+}
+
+void displayWelcomeScreen(String text) {
+  display.clear();
+  display.setFont(ArialMT_Plain_16);
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.drawString(64, 22, text);
   // write the buffer to the display
   display.display();
 }
@@ -79,7 +89,8 @@ void postData(String uuid) {
       http.addHeader("Content-Type", "application/json");
 
       String serviceUUID = getServiceUUID(uuid);
-      doc["uid"] = serviceUUID;
+      doc["fromWhatDevice"] = DEVICE_NAME;
+      doc["closeContact"] = serviceUUID;
       String json;
       serializeJson(doc, json);
       Serial.println("serviceUUID: " + serviceUUID);
@@ -95,6 +106,7 @@ void postData(String uuid) {
         digitalWrite (LED_POST_DATA, LOW);
       }
       else {
+        refreshDisplay("No connection to the server");
         Serial.print("Error code: ");
         Serial.println(httpResponseCode);
       }
@@ -123,7 +135,7 @@ bool checkInDatabase (String uuid) {
 
       http.begin(client, serverNameGetDevice + "/" + serviceUUID);
 
-      Serial.println(serverNameGetDevice + "/" + serviceUUID);
+      // Serial.println(serverNameGetDevice + "/" + serviceUUID);
 
       int httpResponseCode = http.GET();
       String payload = "{}";
@@ -131,21 +143,23 @@ bool checkInDatabase (String uuid) {
 
       if (httpResponseCode == 200) {
         if (payload != "null") { // if not null
-          Serial.print("HTTP Response code: ");
-          Serial.println(httpResponseCode);
-          Serial.println("Payload: " + payload);
+          // Serial.print("HTTP Response code: ");
+          // Serial.println(httpResponseCode);
+          // Serial.println("Payload: " + payload);
           return true;
         } else { // else payload is "null"
-          Serial.print("HTTP Response code: ");
-          Serial.println(httpResponseCode);
-          Serial.println("Payload: " + payload);
+          // Serial.print("HTTP Response code: ");
+          // Serial.println(httpResponseCode);
+          // Serial.println("Payload: " + payload);
+          Serial.println("ID not existing in DB");
           return false;
         }
       }
       else {
-        Serial.print("Error code: ");
-        Serial.println(httpResponseCode);
-        Serial.println("Payload: " + payload);
+        refreshDisplay("No connection to the server");
+        // Serial.print("Error code: ");
+        // Serial.println(httpResponseCode);
+        // Serial.println("Payload: " + payload);
         return false;
       }
 
@@ -163,20 +177,39 @@ bool checkInDatabase (String uuid) {
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
       Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
-      if (advertisedDevice.haveRSSI()) {
-        float rssiOverTwo = (int)advertisedDevice.getRSSI() / 2; // for other device to work (idk)
-        float ratio = (A - rssiOverTwo);
-        float ratioOver20 = ratio / (10 * N);
-        float distance = pow(10, ratioOver20); // in meters
-        Serial.printf("Rssi-distance in meters: %f", distance);
-        Serial.printf(" m \n");
+
+      // check if UID is existing in the database
+      bool isExistingInDb = checkInDatabase(advertisedDevice.toString().c_str());
+
+      if (advertisedDevice.haveRSSI() && isExistingInDb) {
+        // float rssi = (int)advertisedDevice.getRSSI() / 2; // for other device to work (idk)
+        // float rssi = (int)advertisedDevice.getRSSI();
+        // float ratio = (A - rssi);
+        // float ratioOver20 = ratio / (20);
+        // // Serial.println(String(rssi));
+        // // Serial.println("ratio" + String(ratio));
+        // // Serial.println("ratioOver20" + String(ratioOver20));
+
+        // float distance = pow(10, ratioOver20); // in meters
+        // Serial.println(String(distance, 5));
+        // Serial.printf("Rssi-distance in meters: %e", distance);
+        // Serial.printf("Rssi-distance in meters: %f", (distance));
+        // Serial.printf(" m \n");
         // Serial.printf("Rssi: %d \n", (int)advertisedDevice.getRSSI());
-        refreshDisplayCount("Distance: " + String(distance) + "m");
-        // check if UID is existing in the database
-        bool isExisting = checkInDatabase(advertisedDevice.toString().c_str());
+
+        // displayDeviceFound("Distance: " + String(distance, 5) + " m");
+
+        // if (isExistingInDb) {
+        //   devicesFound++;
+        // }
+
+        devicesFound++;
+        Serial.println("Devices found: ");
+        Serial.println(devicesFound);
+        displayDeviceFound("Devices found: " + String(devicesFound));
 
         // Exposure count of 12 indicates 1 minute (180 == 15 minute)
-        if (isExisting && distance <= 1 && exposureCount == 180) {
+        if (exposureCount == 1) {
           digitalWrite(BUZZER_NEAR_PERSON, HIGH);
           digitalWrite (LED_WIFI, HIGH);
           delay(3000);
@@ -186,6 +219,9 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
           exposureCount = 0;
         }
       }
+      Serial.println("Devices found: ");
+      Serial.println(devicesFound);
+      displayDeviceFound("Devices found: " + String(devicesFound));
     }
 };
 
@@ -199,12 +235,18 @@ void setup() {
   display.init();
   display.flipScreenVertically();
 
+  Serial.println("********************************");
+  Serial.println("GROUP 4607");
+  displayWelcomeScreen("GROUP 4607");
+  Serial.println("********************************");
+  delay(5000);
+
   Serial.print("Connecting to ");
   Serial.print(ssid);
   Serial.print(" with password ");
   Serial.println(password);
 
-  refreshDisplay("Connecting to " + String(ssid) + " with password " + String(password));
+  refreshDisplay("Connecting to " + String(ssid));
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -217,9 +259,10 @@ void setup() {
   Serial.println("");
   Serial.print("Connected to WiFi network with IP Address: ");
   Serial.println(WiFi.localIP());
+  refreshDisplay("Connected to WiFi network with IP Address: " + String(WiFi.localIP().toString().c_str()));
 
   // Server part
-  BLEDevice::init("DEVICE 2");
+  BLEDevice::init(DEVICE_NAME);
   BLEServer *pServer = BLEDevice::createServer();
   BLEService *pService = pServer->createService(SERVICE_UUID);
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
@@ -228,7 +271,7 @@ void setup() {
                                          BLECharacteristic::PROPERTY_WRITE
                                        );
 
-  pCharacteristic->setValue("From DEVICE 2");
+  pCharacteristic->setValue("From " + DEVICE_NAME);
   pService->start();
   // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -252,23 +295,47 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-  Serial.println("Devices found: ");
-  Serial.println(foundDevices.getCount());
-  refreshDisplayCount("Devices found: " + String(foundDevices.getCount()));
 
   if (foundDevices.getCount() == 0) {
     exposureCount = 0;
   }
 
+  // Try after scanning do the operation
   for (int i = 0; i < foundDevices.getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices.getDevice(i);
     if (strcmp(device.getName().c_str(), "DEVICE 1") == 0) {
-      exposureCount++;
       Serial.println(device.getName().c_str());
-      Serial.println(exposureCount);
+
+      // check if UID is existing in the database
+      bool isExistingInDb = checkInDatabase(device.toString().c_str());
+
+      if (device.haveRSSI() && isExistingInDb) {
+        Serial.printf("Rssi: %d \n", (int)device.getRSSI());
+        // float rssi = (int)advertisedDevice.getRSSI() / 2; // for other device to work (idk)
+        float rssi = (int)device.getRSSI() + 20;
+        float ratio = (A - rssi);
+        float ratioOver20 = ratio / (20);
+        // Serial.println(String(rssi));
+        // Serial.println("ratio" + String(ratio));
+        // Serial.println("ratioOver20" + String(ratioOver20));
+
+        float distance = pow(10, ratioOver20); // in meters
+        Serial.printf("Rssi-distance in meters: %f", (distance));
+        Serial.printf(" m \n");
+
+        displayDeviceFound("Distance: " + String(distance, 5) + " m");
+
+        if (distance <= 1) {
+          exposureCount++;
+        }
+        Serial.println(exposureCount);
+      }
     }
   }
+
   Serial.println("Scan done!");
+  devicesFound = 0;
+
   pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
   delay(2000);
   Serial.println("*******************************");
