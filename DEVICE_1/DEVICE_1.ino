@@ -13,6 +13,7 @@
 #include <TinyGPS++.h>
 #include <Wire.h> // // For a connection via I2C using the Arduino Wire. Only needed for Arduino 1.6.5 and earlier
 #include "SH1106Wire.h"   // legacy: #include "SH1106.h"
+
 #define SERVICE_UUID        "37565ec6-46c8-11ec-81d3-0242ac130003"
 #define CHARACTERISTIC_UUID "447cd81e-46c8-11ec-81d3-0242ac130003"
 #define RXD2 16
@@ -21,9 +22,10 @@
 SH1106Wire display(0x3c, SDA, SCL);     // ADDRESS, SDA, SCL
 BLEScan* pBLEScan;
 HardwareSerial SerialGPS(1);
-TinyGPSPlus gps;
 
+TinyGPSPlus gps;
 StaticJsonDocument<200> doc;
+
 const char* ssid = "wifiName";
 const char* password = "wifiPassword";
 const String serverName = "localhost:port/api/information";
@@ -34,14 +36,18 @@ const int LED_POST_DATA = 2; // post data led indicator
 const int BUZZER_NEAR_PERSON = 19; // near person indicator
 const String DEVICE_NAME = "DEVICE 1";
 int exposureCount = 0;
-int scanTime = 5; //In seconds
 int devicesFound = 0;
+String deviceName = "";
+float distance = 0;
+int scanTime = 5; //In seconds
 int8_t N = 2; // index
 int8_t A = -69; // // BLE uses Measured Power is also known as the 1 Meter RSSI. So consider the value of Measured Power = -69, indicates the signal strength is received from a reference node, normally at a distance of 1m.
 float latitude , longitude;
-String  latitude_string , longitude_string;
+String latitude_string = "14.5013040- -"; // dummy data
+String longitude_string = "121.058395- -"; // dummy data
 unsigned long lastTime = 0; // Variables are unsigned longs because the time, measured in milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long timerDelay = 5; // Set timer to 5 seconds (5000)
+int capacitySize = 10;
 
 void refreshDisplay(String text) {
   display.clear();
@@ -101,7 +107,7 @@ void postData(String uuid) {
 
       String serviceUUID = getServiceUUID(uuid);
       doc["fromWhatDevice"] = DEVICE_NAME;
-      doc["closeContact"] = serviceUUID;
+      doc["closeContact"] = "9ecc3b20-46c8-11ec-81d3-0242ac130003"; // MAY SAPAK DEVICE 2
       String json;
       serializeJson(doc, json);
       Serial.println("serviceUUID: " + serviceUUID);
@@ -216,91 +222,63 @@ void sendGPSLocationToDB (String latitude, String longitude) {
 }
 
 String getLocationOfOtherDevice (String uuid) {
-  //Send an HTTP POST request every 10 minutes
-  if ((millis() - lastTime) > timerDelay) {
-    //Check WiFi connection status
-    if (WiFi.status() == WL_CONNECTED) {
-      WiFiClient client;
-      HTTPClient http;
+  if (uuid != "") {
+    //Send an HTTP POST request every 10 minutes
+    if ((millis() - lastTime) > timerDelay) {
+      //Check WiFi connection status
+      if (WiFi.status() == WL_CONNECTED) {
+        WiFiClient client;
+        HTTPClient http;
 
-      // Your Domain name with URL path or IP address with path
-      String serviceUUID = uuid.substring(uuid.indexOf("serviceUUID: "), 93); // get only serviceUUID (93th is the placement of the last char of serviceUUID)
-      serviceUUID.replace("serviceUUID: ", ""); // remove the string "serviceUUID"
+        // Your Domain name with URL path or IP address with path
+        String serviceUUID = uuid.substring(uuid.indexOf("serviceUUID: "), 93); // get only serviceUUID (93th is the placement of the last char of serviceUUID)
+        serviceUUID.replace("serviceUUID: ", ""); // remove the string "serviceUUID"
 
-      http.begin(client, locationRoute + "/" + serviceUUID);
+        http.begin(client, locationRoute + "/" + serviceUUID);
 
-      int httpResponseCode = http.GET();
-      String payload = "{}";
-      payload = http.getString();
+        int httpResponseCode = http.GET();
+        String payload = "{}";
+        payload = http.getString();
 
-      if (httpResponseCode == 200) {
-        if (payload != "null") { // if not null
-          return payload;
-        } else { // else payload is "null"
-          return "No updated location of this device yet";
+        if (httpResponseCode == 200) {
+          if (payload != "null") { // if not null
+            return payload;
+          } else { // else payload is "null"
+            return "No updated location of this device yet";
+          }
         }
+        else {
+          return "No connection to the server";
+        }
+
+        // Free resources
+        http.end();
       }
       else {
-        return "No connection to the server";
+        return "WiFi Disconnected";
       }
-
-      // Free resources
-      http.end();
-    }
-    else {
+      lastTime = millis();
+    } else {
       return "WiFi Disconnected";
     }
-    lastTime = millis();
+
   } else {
-    return "WiFi Disconnected";
+    return "Unknown device";
   }
+}
+
+boolean checkForDevice(String array[], String element) {
+  for (int i = 0; i < capacitySize; i++) {
+    if (array[i] == element) {
+      return true;
+    }
+  }
+  return false;
 }
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
       Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
-
-      // check if UID is existing in the database
-      bool isExistingInDb = checkInDatabase(advertisedDevice.toString().c_str());
-
-      if (advertisedDevice.haveRSSI() && isExistingInDb) {
-        // float rssi = (int)advertisedDevice.getRSSI() / 2; // for other device to work (idk)
-        // float rssi = (int)advertisedDevice.getRSSI();
-        // float ratio = (A - rssi);
-        // float ratioOver20 = ratio / (20);
-        // // Serial.println(String(rssi));
-        // // Serial.println("ratio" + String(ratio));
-        // // Serial.println("ratioOver20" + String(ratioOver20));
-
-        // float distance = pow(10, ratioOver20); // in meters
-        // Serial.println(String(distance, 5));
-        // Serial.printf("Rssi-distance in meters: %e", distance);
-        // Serial.printf("Rssi-distance in meters: %f", (distance));
-        // Serial.printf(" m \n");
-        // Serial.printf("Rssi: %d \n", (int)advertisedDevice.getRSSI());
-
-        // displayDeviceFound("Distance: " + String(distance, 5) + " m");
-
-        // if (isExistingInDb) {
-        //   devicesFound++;
-        // }
-
-        devicesFound++;
-
-        // Exposure count of 12 indicates 1 minute (180 == 15 minute)
-        if (exposureCount == 6) {
-          digitalWrite(BUZZER_NEAR_PERSON, HIGH);
-          digitalWrite (LED_WIFI, HIGH);
-          delay(3000);
-          digitalWrite(BUZZER_NEAR_PERSON, LOW);
-          digitalWrite (LED_WIFI, LOW);
-          postData(advertisedDevice.toString().c_str());
-          exposureCount = 0;
-        }
-      }
-      Serial.println("Devices found: ");
-      Serial.println(devicesFound);
-      displayDeviceFound("Devices found: " + String(devicesFound));
     }
 };
 
@@ -335,9 +313,9 @@ void setup() {
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite (LED_WIFI, HIGH);
-    delay(50);
+    delay(100);
     digitalWrite (LED_WIFI, LOW);
-    delay(50);
+    delay(100);
     Serial.print(".");
   }
   Serial.println("");
@@ -379,46 +357,71 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
+  // Serial.println(foundDevices.getCount());
 
   if (foundDevices.getCount() == 0) {
     exposureCount = 0;
   }
 
+  String scannedDevices[capacitySize];
+  float rssiOfOtherDevice = 0;
+
   for (int i = 0; i < foundDevices.getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices.getDevice(i);
+    scannedDevices[i] = device.getName().c_str();
     if (strcmp(device.getName().c_str(), "DEVICE 2") == 0) {
-      Serial.println(device.getName().c_str());
+      float rssi = (int)device.getRSSI() + 20;
+      float ratio = (A - rssi);
+      float ratioOver20 = ratio / (20);
+      rssiOfOtherDevice = pow(10, ratioOver20); // in meters
+    }
+  }
 
-      // check if UID is existing in the database
-      bool isExistingInDb = checkInDatabase(device.toString().c_str());
+  bool andyan = checkForDevice(scannedDevices, "DEVICE 2");
 
-      if (device.haveRSSI() && isExistingInDb) {
+  if (andyan && rssiOfOtherDevice <= 1) {
+    exposureCount++;
+    for (int i = 0; i < foundDevices.getCount(); i++) {
+      BLEAdvertisedDevice device = foundDevices.getDevice(i);
+      if (strcmp(device.getName().c_str(), "DEVICE 2") == 0) {
+        devicesFound++;
+        deviceName = device.toString().c_str();
         Serial.printf("Rssi: %d \n", (int)device.getRSSI());
-        // float rssi = (int)advertisedDevice.getRSSI() / 2; // for other device to work (idk)
         float rssi = (int)device.getRSSI() + 20;
         float ratio = (A - rssi);
         float ratioOver20 = ratio / (20);
         // Serial.println(String(rssi));
         // Serial.println("ratio" + String(ratio));
         // Serial.println("ratioOver20" + Sttring(ratioOver20));
-
-        float distance = pow(10, ratioOver20); // in meters
+        distance = pow(10, ratioOver20); // in meters
         Serial.printf("Rssi-distance in meters: %f", (distance));
         Serial.printf(" m \n");
 
-        displayDeviceLocation("Distance: " + String(distance, 5) + " m " + "Location: " + getLocationOfOtherDevice(device.toString().c_str()));
-
-        if (distance <= 1) {
-          exposureCount++;
-        }
+        Serial.print("Exposure count: " );
         Serial.println(exposureCount);
+
+        // Exposure count of 12 indicates 1 minute (180 == 15 minute)
+        if (exposureCount == 6) {
+          digitalWrite(BUZZER_NEAR_PERSON, HIGH);
+          digitalWrite (LED_WIFI, HIGH);
+          delay(3000);
+          digitalWrite(BUZZER_NEAR_PERSON, LOW);
+          digitalWrite (LED_WIFI, LOW);
+          postData(device.toString().c_str());
+          exposureCount = 0;
+        }
       }
     }
+  } else {
+    exposureCount = 0;
   }
-  
-  Serial.println("Scan done!");
-  devicesFound = 0;
 
+  Serial.print("Devices found: ");
+  Serial.println(devicesFound);
+  displayDeviceFound("Devices found: " + String(devicesFound));
+  delay(1000);
+  displayDeviceLocation("Distance: " + String(distance, 5) + " m " + "Location: " + getLocationOfOtherDevice(deviceName));
+  devicesFound = 0;
   pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
 
   // GPS
@@ -433,15 +436,19 @@ void loop() {
         latitude_string = String(latitude , 6);
         longitude = gps.location.lng();
         longitude_string = String(longitude , 6);
-        Serial.print("Latitude = ");
-        Serial.println(latitude_string);
-        Serial.print("Longitude = ");
-        Serial.println(longitude_string);
+        // Serial.print("Latitude = ");
+        // Serial.println(latitude_string);
+        // Serial.print("Longitude = ");
+        // Serial.println(longitude_string);
+        sendGPSLocationToDB(latitude_string, longitude_string);
+      } else {
         sendGPSLocationToDB(latitude_string, longitude_string);
       }
       Serial.println();
     }
   }
-  delay(2000);
-  Serial.println("*******************************");
+  //delay(2000);
+  Serial.println("");
+  Serial.println("*****************SCAN DONE*****************");
+  Serial.println("");
 }
